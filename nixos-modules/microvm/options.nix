@@ -278,8 +278,9 @@ in
             description = "If and where to mount the volume inside the container";
           };
           size = mkOption {
-            type = int;
-            description = "Volume size (in MiB) if created automatically";
+            type = nullOr int;
+            default = null;
+            description = "Volume size (in MiB) if created automatically. Required when `autoCreate` is true.";
           };
           autoCreate = mkOption {
             type = bool;

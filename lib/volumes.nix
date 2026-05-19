@@ -17,17 +17,23 @@ let
   collectFsTypes = volumes: map (v: v.fsType) volumes;
   collectFsUtils = volumes: map (fsType: fsTypeToUtil fsType) (collectFsTypes volumes);
 
+  isZvol = image: lib.hasPrefix "/dev/zvol/" image;
+
 in
 {
+
   createVolumesScript = volumes:
+    let
+      autoCreateVolumes = lib.filter (v: v.autoCreate) volumes;
+    in
     lib.optionalString (volumes != [ ]) (
-      lib.optionalString (lib.any (v: v.autoCreate) volumes) ''
-        PATH=$PATH:${lib.makeBinPath ([ pkgs.coreutils ] ++ (collectFsUtils volumes))}
+      lib.optionalString (autoCreateVolumes != [ ]) ''
+        PATH=$PATH:${lib.makeBinPath ([ pkgs.coreutils ] ++ (collectFsUtils autoCreateVolumes))}
       ''
       + lib.concatMapStringsSep "\n" (
         { image
         , label
-        , size ? throw "Specify a size for volume ${image} or use autoCreate = false"
+        , size ? null
         , mkfsExtraArgs
         , fsType ? defaultFsType
         , autoCreate ? true
@@ -35,6 +41,7 @@ in
         lib.warnIf (label != null && !autoCreate)
           "Volume is not automatically labeled unless autoCreate is true. Volume has to be labeled manually, otherwise it will not be identified" (
             let
+              zvol = isZvol image;
               labelOption =
                 if autoCreate then (
                   if builtins.elem fsType [
@@ -50,21 +57,29 @@ in
                   else lib.warnIf (label != null)
                     "Will not label volume ${label} with filesystem type ${fsType}. Open an issue on the microvm.nix project to request a fix."
                     null
-                    
                 )
                 else null;
               labelArgument = lib.optionalString (labelOption != null && label != null) "${labelOption} '${label}'";
               mkfsExtraArgsString = if mkfsExtraArgs != null then lib.escapeShellArgs mkfsExtraArgs else " ";
             in
-              lib.optionalString autoCreate ''
-                if [ ! -e '${image}' ]; then
-                  touch '${image}'
-                  # Mark NOCOW
-                  chattr +C '${image}' || true
-                  truncate -s ${toString size}M '${image}'
-                  mkfs.${fsType} ${labelArgument} ${mkfsExtraArgsString} '${image}'
-                fi
-              ''
+              if zvol then
+                assert lib.assertMsg (!autoCreate)
+                  "autoCreate is not supported for zvol volume ${image}. Create the zvol outside of microvm.nix and set autoCreate = false.";
+                ""
+              else
+                lib.optionalString autoCreate (
+                  assert lib.assertMsg (size != null)
+                    "Specify a size for volume ${image} or use autoCreate = false";
+                  ''
+                    if [ ! -e '${image}' ]; then
+                      touch '${image}'
+                      # Mark NOCOW
+                      chattr +C '${image}' || true
+                      truncate -s ${toString size}M '${image}'
+                      mkfs.${fsType} ${labelArgument} ${mkfsExtraArgsString} '${image}'
+                    fi
+                  ''
+                )
           )
       ) volumes
     );

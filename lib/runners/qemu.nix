@@ -259,10 +259,13 @@ lib.warnIf (mem == 2048) ''
       "-device" "virtio-mem-pci,id=vm0,memdev=vmem0,requested-size=${toString hotpluggedMem}M"
     ] ++
     builtins.concatMap ({ image, letter, serial, direct, readOnly, ... }:
+      let zvol = lib.hasPrefix "/dev/zvol/" image; in
       [ "-drive"
-        "id=vd${letter},format=raw,file=${image},if=none,aio=${aioEngine},discard=unmap${
-          lib.optionalString (direct != null) ",cache=none"
-        },read-only=${if readOnly then "on" else "off"}"
+        (if zvol
+         then "file=${image},format=raw,if=none,id=vd${letter},cache=none,aio=native,read-only=${if readOnly then "on" else "off"}"
+         else "id=vd${letter},format=raw,file=${image},if=none,aio=${aioEngine},discard=unmap${
+           lib.optionalString (direct != null) ",cache=none"
+         },read-only=${if readOnly then "on" else "off"}")
         "-device"
         "virtio-blk-${devType},drive=vd${letter}${
           lib.optionalString (serial != null) ",serial=${serial}"
